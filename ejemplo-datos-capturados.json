@@ -1,0 +1,73 @@
+{
+  "paquete_1_captura_silenciosa": {
+    "event": "page_load",
+    "stage": "initial_capture",
+    "sessionId": "session_1709574645123_abc123xyz",
+    "timestamp": "2026-03-04T18:30:45.123Z",
+    "pageUrl": "http://localhost:8000/index.html",
+    "referrer": "Directo",
+    "deviceType": "Escritorio",
+    "browserInfo": {
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+      "language": "es-AR",
+      "platform": "Win32",
+      "vendor": "Google Inc.",
+      "screenWidth": 1920,
+      "screenHeight": 1080,
+      "timezone": "America/Argentina/Buenos_Aires",
+      "cookiesEnabled": true,
+      "doNotTrack": "not-set"
+    },
+    "networkInfo": {
+      "ip": "181.45.123.45",
+      "isp": "Telecom Argentina S.A.",
+      "city": "Oberá",
+      "region": "Misiones",
+      "country": "Argentina",
+      "countryCode": "AR",
+      "timezone": "America/Argentina/Buenos_Aires",
+      "asn": "AS7303",
+      "approximateLocation": {
+        "latitude": -27.4878,
+        "longitude": -55.1197,
+        "accuracy": "city-level"
+      }
+    },
+    "gpsStatus": "pending"
+  },
+  
+  "paquete_2_gps_aceptado": {
+    "event": "gps_granted",
+    "stage": "gps_capture",
+    "sessionId": "session_1709574645123_abc123xyz",
+    "timestamp": "2026-03-04T18:31:12.456Z",
+    "gpsData": {
+      "latitude": -27.4912345,
+      "longitude": -55.1183678,
+      "accuracy": 18.5,
+      "altitude": 245,
+      "altitudeAccuracy": 10,
+      "heading": null,
+      "speed": null,
+      "timestamp": "2026-03-04T18:31:10.789Z",
+      "permissionGranted": true,
+      "source": "html5-geolocation-api"
+    },
+    "networkInfo": {
+      "ip": "181.45.123.45",
+      "isp": "Telecom Argentina S.A.",
+      "city": "Oberá",
+      "region": "Misiones",
+      "country": "Argentina"
+    }
+  },
+
+  "paquete_alternativo_gps_denegado": {
+    "event": "gps_denied",
+    "stage": "initial_denial",
+    "sessionId": "session_1709574645123_abc123xyz",
+    "timestamp": "2026-03-04T18:30:50.999Z",
+    "errorType": "PERMISSION_DENIED",
+    "errorMessage": "Usuario denegó el permiso GPS"
+  }
+}

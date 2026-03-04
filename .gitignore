@@ -1,0 +1,22 @@
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temporal
+.tmp/
+.cache/
+
+# No subir archivos de configuración con datos sensibles
+# (Descomenta si quieres proteger el webhook)
+# analytics.js

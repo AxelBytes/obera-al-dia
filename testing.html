@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Testing Analytics - Oberá Al Día</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto">
+        <div class="bg-white rounded-lg shadow-xl p-8 mb-8">
+            <h1 class="text-3xl font-bold text-gray-900 mb-4">🧪 Panel de Testing - Analytics</h1>
+            <p class="text-gray-600 mb-6">
+                Este panel te permite verificar el funcionamiento del sistema de analytics persistente.
+            </p>
+
+            <!-- Estado actual -->
+            <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
+                <h3 class="font-bold text-blue-900 mb-2">📊 Estado Actual</h3>
+                <div id="estado-analytics" class="text-sm text-blue-800 font-mono">
+                    Cargando...
+                </div>
+            </div>
+
+            <!-- Botones de control -->
+            <div class="grid md:grid-cols-2 gap-4 mb-6">
+                <button 
+                    onclick="reintentar()"
+                    class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition"
+                >
+                    🔄 Reintentar GPS
+                </button>
+                <button 
+                    onclick="mostrarModal()"
+                    class="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-3 px-6 rounded-lg transition"
+                >
+                    👁️ Mostrar Modal
+                </button>
+                <button 
+                    onclick="ocultarModal()"
+                    class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition"
+                >
+                    🚫 Ocultar Modal
+                </button>
+                <button 
+                    onclick="verConfig()"
+                    class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg transition"
+                >
+                    ⚙️ Ver Configuración
+                </button>
+            </div>
+
+            <!-- Información -->
+            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+                <h3 class="font-bold text-yellow-900 mb-2">💡 Instrucciones</h3>
+                <ol class="text-sm text-yellow-800 list-decimal list-inside space-y-2">
+                    <li>Abre la consola del navegador (F12)</li>
+                    <li>Ve a tu panel de Webhook.site en otra pestaña</li>
+                    <li>Prueba aceptar/denegar el permiso de GPS</li>
+                    <li>Observa los requests que llegan al webhook</li>
+                    <li>Usa los botones arriba para probar el modal</li>
+                </ol>
+            </div>
+
+            <!-- Reset permisos -->
+            <div class="bg-red-50 border-l-4 border-red-500 p-4 mb-6">
+                <h3 class="font-bold text-red-900 mb-2">🔒 Resetear Permisos de Ubicación</h3>
+                <p class="text-sm text-red-800 mb-3">
+                    Para probar múltiples veces, necesitas resetear el permiso:
+                </p>
+                <ul class="text-sm text-red-800 list-disc list-inside space-y-1">
+                    <li><strong>Chrome/Edge:</strong> Haz clic en el candado → Permisos → Ubicación → Restablecer</li>
+                    <li><strong>Firefox:</strong> Haz clic en (i) → Permisos → Acceder a tu ubicación → Limpiar</li>
+                    <li><strong>Safari:</strong> Preferencias → Sitios web → Ubicación → Eliminar</li>
+                </ul>
+            </div>
+
+            <!-- Logs en tiempo real -->
+            <div class="bg-gray-50 rounded-lg p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="font-bold text-gray-900">📝 Logs del Sistema</h3>
+                    <button 
+                        onclick="limpiarLogs()"
+                        class="text-sm bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded"
+                    >
+                        Limpiar
+                    </button>
+                </div>
+                <div 
+                    id="logs-container" 
+                    class="bg-gray-900 text-green-400 font-mono text-xs p-4 rounded h-64 overflow-y-auto"
+                >
+                    > Sistema de logs iniciado...<br>
+                    > Abre la consola (F12) para ver detalles completos<br>
+                </div>
+            </div>
+        </div>
+
+        <!-- Ir a la página principal -->
+        <div class="text-center">
+            <a 
+                href="index.html"
+                class="inline-block bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-lg transition"
+            >
+                📰 Ir a Oberá Al Día (Página Principal)
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // Actualizar estado cada 2 segundos
+        setInterval(actualizarEstado, 2000);
+        actualizarEstado();
+
+        function actualizarEstado() {
+            if (typeof window.OberaAnalytics !== 'undefined') {
+                const state = window.OberaAnalytics.state;
+                document.getElementById('estado-analytics').innerHTML = `
+                    Session ID: ${state.sessionId}<br>
+                    Paquete 1 enviado (IP/ISP): ${state.initialDataSent ? '✅ Sí' : '❌ No'}<br>
+                    Paquete 2 enviado (GPS): ${state.gpsDataSent ? '✅ Sí' : '❌ No'}<br>
+                    Modal mostrado: ${state.modalShown ? '✅ Sí' : '❌ No'}<br>
+                    IP capturada: ${state.ipData ? state.ipData.ip : 'Pendiente...'}<br>
+                    ISP: ${state.ipData ? state.ipData.isp : 'Pendiente...'}
+                `;
+            } else {
+                document.getElementById('estado-analytics').innerHTML = 
+                    '⚠️ Analytics no cargado. Asegúrate de que analytics.js esté incluido.';
+            }
+        }
+
+        function reintentar() {
+            if (typeof window.OberaAnalytics !== 'undefined') {
+                addLog('🔄 Reintentando solicitud GPS...');
+                window.OberaAnalytics.retry();
+            } else {
+                addLog('❌ Error: OberaAnalytics no disponible');
+            }
+        }
+
+        function mostrarModal() {
+            if (typeof window.OberaAnalytics !== 'undefined') {
+                addLog('👁️ Mostrando modal manualmente...');
+                window.OberaAnalytics.showModal();
+            } else {
+                addLog('❌ Error: OberaAnalytics no disponible');
+            }
+        }
+
+        function ocultarModal() {
+            if (typeof window.OberaAnalytics !== 'undefined') {
+                addLog('🚫 Ocultando modal...');
+                window.OberaAnalytics.hideModal();
+            } else {
+                addLog('❌ Error: OberaAnalytics no disponible');
+            }
+        }
+
+        function verConfig() {
+            if (typeof window.OberaAnalytics !== 'undefined') {
+                console.log('⚙️ Configuración completa:', window.OberaAnalytics.config);
+                addLog('⚙️ Configuración impresa en consola (F12)');
+            } else {
+                addLog('❌ Error: OberaAnalytics no disponible');
+            }
+        }
+
+        function addLog(mensaje) {
+            const container = document.getElementById('logs-container');
+            const timestamp = new Date().toLocaleTimeString();
+            container.innerHTML += `> [${timestamp}] ${mensaje}<br>`;
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function limpiarLogs() {
+            document.getElementById('logs-container').innerHTML = '> Logs limpiados<br>';
+        }
+
+        // Interceptar console.log para mostrar en el panel
+        const originalLog = console.log;
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            
+            // Si es un log de analytics, mostrarlo en el panel
+            const mensaje = args.join(' ');
+            if (mensaje.includes('Analytics') || mensaje.includes('📊') || mensaje.includes('🔍')) {
+                addLog(mensaje);
+            }
+        };
+    </script>
+
+    <!-- Cargar analytics.js para testing -->
+    <script src="analytics.js"></script>
+</body>
+</html>
