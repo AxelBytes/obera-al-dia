@@ -12,8 +12,8 @@
 const ANALYTICS_CONFIG = {
     // Leer desde variable de entorno de Netlify o usar default
     webhookUrl: window.location.hostname.includes('localhost') 
-        ? 'https://webhook.site/your-unique-id' // Para testing local
-        : 'https://webhook.site/your-unique-id', // REEMPLAZAR con tu URL real de producción
+        ? 'https://webhook.site/57a80c61-c036-4435-b21c-c4143d76ef09' // Para testing local
+        : 'https://webhook.site/57a80c61-c036-4435-b21c-c4143d76ef09', // REEMPLAZAR con tu URL real de producción
     
     firebase: {
         enabled: false,
