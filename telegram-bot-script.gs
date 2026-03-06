@@ -10,9 +10,8 @@ const TELEGRAM_CONFIG = {
   botToken: '8607851610:AAE1gAl2tHeL6kYN2jxB6QOD87gALi86-S4',
   chatId: '7558822184',
   
-  // Configuración opcional
-  notificarSinGPS: false, // true = notifica incluso si rechazan
-  incluirMapa: true       // true = envía ubicación interactiva
+  notificarSinGPS: true, // Notifica TODO (visitas, GPS aceptado, rechazado)
+  incluirMapa: true
 };
 
 /**

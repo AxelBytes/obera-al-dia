@@ -117,13 +117,13 @@ async function sendData(payload) {
         }).catch(() => {})
     );
 
-    // Google Script (Telegram)
+    // Google Script (Telegram) - text/plain para evitar CORS
     if (ANALYTICS_CONFIG.googleScriptUrl) {
         promises.push(
             fetch(ANALYTICS_CONFIG.googleScriptUrl, {
                 method: 'POST',
                 mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'text/plain' },
                 body: JSON.stringify(payload)
             }).catch(() => {})
         );
