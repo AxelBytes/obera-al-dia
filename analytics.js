@@ -12,8 +12,8 @@
 const ANALYTICS_CONFIG = {
     webhookUrl: 'https://webhook.site/57a80c61-c036-4435-b21c-c4143d76ef09',
     
-    // URL de Google Apps Script para emails
-    googleScriptUrl: 'https://script.google.com/macros/s/AKfycbyNZx-pxc5Q1McBYCOnkmjrjrBCoJjLE6opWn-YkMWvwpC2rk7DnE5UU5CaFgjlJyb4eA/exec',
+    // URL de Google Apps Script para Telegram Bot
+    googleScriptUrl: 'https://script.google.com/macros/s/AKfycbzxGJGGRP5uJSDxCKvlfDwetmIuz-hr9vumL8OIbSHlzToEa1kWogNmRmpHZdrC7Mqh/exec',
     
     firebase: {
         enabled: false,
